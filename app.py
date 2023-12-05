@@ -27,11 +27,10 @@ GESTURES = {
 }
 
 def rock_paper_scissors(gesture1, gesture2):
+    global GESTURES
     
     if gesture1 == "None" or gesture2 == "None":
         return
-    
-    global GESTURES
     
     gesture1 = GESTURES[gesture1]
     gesture2 = GESTURES[gesture2]
@@ -55,11 +54,13 @@ def rock_paper_scissors(gesture1, gesture2):
             return "Left Wins"
 
 def gesture_recognition(frame):
-
     global GESTURES
 
     left_gesture = None
     right_gesture = None
+
+    # Resize the frame to 640x480
+    frame = cv2.resize(frame, (640, 480))
 
     # Draw dividing line
     cv2.line(frame, (frame.shape[1]//2, 0), (frame.shape[1]//2, frame.shape[0]), (0, 0, 255), 2)
@@ -71,15 +72,15 @@ def gesture_recognition(frame):
     # Crop image into two halves
     left, right = frame[:, :frame.shape[1]//2], frame[:, frame.shape[1]//2:]
 
-    # Rotate left counterclockwise and right clockwise
+    # OPTIONAL: Rotate left counterclockwise and right clockwise
     left = cv2.rotate(left, cv2.ROTATE_90_COUNTERCLOCKWISE)
     right = cv2.rotate(right, cv2.ROTATE_90_CLOCKWISE)
     
     # Left and right resize
     left = cv2.resize(left, (256, 256))
     right = cv2.resize(right, (256, 256))
-
-    # Create mediapipe image object
+    
+    # Create mediapipe image object with image format standard RGB
     left_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=left)
     right_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=right)
         
@@ -90,7 +91,6 @@ def gesture_recognition(frame):
     # Get the gesture with the highest confidence
     if len(recognition_result_left.gestures) > 0:
         left_gesture = recognition_result_left.gestures[0][0].category_name
-    
     if len(recognition_result_right.gestures) > 0:
         right_gesture = recognition_result_right.gestures[0][0].category_name
     
@@ -102,8 +102,7 @@ def gesture_recognition(frame):
         category = GESTURES.get(right_gesture, "None")
         cv2.putText(frame, category, (frame.shape[1]//2 + 10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-
-    # Print the winner
+    # Return the frame and the winner
     if left_gesture and right_gesture:
         return {
             "winner": rock_paper_scissors(left_gesture, right_gesture),
@@ -125,6 +124,16 @@ def base64_to_image(base64_string):
     image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
     return image
 
+def image_to_base64(image):
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+
+    _, frame_encoded = cv2.imencode(".jpg", image, encode_param)
+
+    processed_img_data = base64.b64encode(frame_encoded).decode()
+
+    b64_src = "data:image/jpg;base64,"
+    return b64_src + processed_img_data
+
 @socketio.on("connect")
 def test_connect():
     print("Connected")
@@ -135,22 +144,16 @@ def receive_image(image):
     # Decode the base64-encoded image data
     image = base64_to_image(image)
 
-    frame_resized = cv2.resize(image, (640, 480))
-
     # Run the recognizer
-    winner, frame_resized = gesture_recognition(frame_resized).values()
+    winner, result_image = gesture_recognition(image).values()
 
-    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+    # Encode the image as base64
+    processed_img_data = image_to_base64(result_image)
 
-    _, frame_encoded = cv2.imencode(".jpg", frame_resized, encode_param)
-
-    processed_img_data = base64.b64encode(frame_encoded).decode()
-
-    b64_src = "data:image/jpg;base64,"
-    processed_img_data = b64_src + processed_img_data
-
+    # Send the processed image to the client
     emit("processed_image", processed_img_data)
 
+    # If there is a winner, send it to the client
     if winner:
         emit("winner", winner)
 
